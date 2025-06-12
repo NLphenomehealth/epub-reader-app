@@ -95,6 +95,18 @@
             align-items: center;
             flex-wrap: wrap;
             gap: 15px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            transform: translateY(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .reader-container:hover .toolbar {
+            transform: translateY(0);
         }
 
         .book-info {
@@ -167,15 +179,48 @@
 
         .reader-content {
             display: flex;
-            height: calc(100vh - 200px);
+            height: 100vh;
+            position: relative;
         }
 
         .sidebar {
             width: 250px;
-            background: rgba(248, 249, 250, 0.8);
+            background: rgba(248, 249, 250, 0.95);
+            backdrop-filter: blur(10px);
             border-right: 1px solid rgba(0, 0, 0, 0.1);
             overflow-y: auto;
             padding: 20px;
+            padding-top: 80px;
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 999;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar.show {
+            transform: translateX(0);
+        }
+
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 998;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-overlay.show {
+            opacity: 1;
+            visibility: visible;
         }
 
         .toc-title {
@@ -233,10 +278,22 @@
 
         .content-area {
             flex: 1;
+            width: 100%;
             padding: 40px;
+            padding-top: 80px;
             overflow-y: auto;
             background: white;
             line-height: 1.6;
+        }
+
+        .content-area p {
+            margin-bottom: 20px;
+            text-align: justify;
+            font-size: 16px;
+        }
+
+        .content-area p + p {
+            margin-top: 20px;
         }
 
         .content-area h1, .content-area h2, .content-area h3 {
@@ -258,11 +315,7 @@
             font-size: 20px;
         }
 
-        .content-area p {
-            margin-bottom: 15px;
-            text-align: justify;
-            font-size: 16px;
-        }
+
 
         .content-area img {
             max-width: 100%;
@@ -288,21 +341,28 @@
         }
 
         @media (max-width: 768px) {
-            .sidebar {
-                display: none;
-            }
-            
             .content-area {
                 padding: 20px;
+                padding-top: 80px;
             }
             
             .controls {
                 justify-content: center;
+                flex-wrap: wrap;
             }
             
             .toolbar {
                 flex-direction: column;
                 text-align: center;
+                padding: 10px 15px;
+            }
+
+            .toolbar .book-info {
+                margin-bottom: 10px;
+            }
+
+            .sidebar {
+                width: 280px;
             }
         }
 
@@ -353,6 +413,7 @@
                     <div class="book-author" id="bookAuthor">Please wait...</div>
                 </div>
                 <div class="controls">
+                    <button class="btn" id="menuBtn" onclick="toggleMenu()">☰ Menu</button>
                     <button class="btn" id="prevBtn" onclick="previousPage()">← Previous</button>
                     <span class="page-info" id="pageInfo">Page 1 of 1</span>
                     <div class="progress">
@@ -363,7 +424,8 @@
                 </div>
             </div>
             <div class="reader-content">
-                <div class="sidebar">
+                <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMenu()"></div>
+                <div class="sidebar" id="sidebar">
                     <div class="toc-title">Table of Contents</div>
                     <div id="tocContainer"></div>
                 </div>
@@ -386,6 +448,7 @@
         let chapters = [];
         let pages = [];
         let bookData = {};
+        let imageCache = new Map();
         const WORDS_PER_PAGE = 300;
 
         // File input handling
@@ -528,6 +591,9 @@
             tocContainer.innerHTML = '';
             pages = [];
             
+            // Process images first
+            await processEPUBImages();
+            
             // Process each chapter
             for (let chapterIndex = 0; chapterIndex < chapters.length; chapterIndex++) {
                 const chapter = chapters[chapterIndex];
@@ -545,6 +611,9 @@
                         .replace(/<head[^>]*>[\s\S]*?<\/head>/g, '')
                         .replace(/<body[^>]*>/g, '<div>')
                         .replace(/<\/body>/g, '</div>');
+                    
+                    // Process images in content
+                    cleanContent = await processImagesInContent(cleanContent);
                     
                     // Parse content
                     const parser = new DOMParser();
@@ -571,6 +640,57 @@
             
             // Generate enhanced TOC
             generateEnhancedTOC();
+        }
+
+        async function processEPUBImages() {
+            const zipFiles = Object.keys(bookData.zip.files);
+            const imageFiles = zipFiles.filter(filename => 
+                /\.(jpg|jpeg|png|gif|svg|webp)$/i.test(filename)
+            );
+            
+            for (const imagePath of imageFiles) {
+                try {
+                    const imageData = await bookData.zip.file(imagePath).async('blob');
+                    const imageUrl = URL.createObjectURL(imageData);
+                    imageCache.set(imagePath, imageUrl);
+                } catch (error) {
+                    console.error('Error processing image:', imagePath, error);
+                }
+            }
+        }
+
+        async function processImagesInContent(content) {
+            // Replace image src attributes with cached blob URLs
+            return content.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (match, src) => {
+                // Remove leading slashes and resolve relative paths
+                let imagePath = src.replace(/^\/+/, '');
+                
+                // Try different path combinations
+                const possiblePaths = [
+                    imagePath,
+                    bookData.basePath + imagePath,
+                    imagePath.replace('../', ''),
+                    'OEBPS/' + imagePath,
+                    'EPUB/' + imagePath
+                ];
+                
+                for (const path of possiblePaths) {
+                    if (imageCache.has(path)) {
+                        return match.replace(src, imageCache.get(path));
+                    }
+                }
+                
+                // If no cached version found, try to find similar filename
+                for (const [cachedPath, cachedUrl] of imageCache.entries()) {
+                    const cachedFilename = cachedPath.split('/').pop();
+                    const srcFilename = imagePath.split('/').pop();
+                    if (cachedFilename === srcFilename) {
+                        return match.replace(src, cachedUrl);
+                    }
+                }
+                
+                return match; // Return original if no match found
+            });
         }
 
         function splitIntoPages(content, chapterTitle, chapterIndex) {
@@ -767,14 +887,22 @@
             
             return `<div class="page-content">
                 <div class="page-header">
-                    <small style="color: #666; font-size: 12px; display: block; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+                    <small style="color: #666; font-size: 12px; display: block; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
                         ${chapterTitle} - Page ${pageNumber} (${totalWords} words)
                     </small>
                 </div>
-                <div style="margin-top: 15px; line-height: 1.6;">
+                <div style="margin-top: 20px; line-height: 1.8;">
                     ${pageHtml}
                 </div>
             </div>`;
+        }
+
+        function toggleMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.toggle('show');
+            overlay.classList.toggle('show');
         }
 
         function generateEnhancedTOC() {
@@ -816,6 +944,12 @@
             
             const page = pages[pageIndex];
             currentPage = pageIndex;
+            
+            // Close menu when loading a page
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.remove('show');
+            overlay.classList.remove('show');
             
             // Update TOC active state
             document.querySelectorAll('.toc-item').forEach((item, i) => {
@@ -875,6 +1009,19 @@
             document.getElementById('readerContainer').style.display = 'none';
             document.getElementById('chapterNav').style.display = 'none';
             document.getElementById('fileInput').value = '';
+            
+            // Close menu
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.remove('show');
+            overlay.classList.remove('show');
+            
+            // Clean up image cache
+            for (const [path, url] of imageCache.entries()) {
+                URL.revokeObjectURL(url);
+            }
+            imageCache.clear();
+            
             currentBook = null;
             currentChapter = 0;
             currentPage = 0;
