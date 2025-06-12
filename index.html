@@ -399,10 +399,10 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <div class="upload-area" id="uploadArea">
                 <div class="upload-text">📚 Select EPUB File</div>
                 <div class="upload-hint">Click here or drag and drop an EPUB file to start reading</div>
-                <input type="file" id="fileInput" accept=".epub" />
+                <input type="file" id="fileInput" accept=".epub,.zip" />
             </div>
         </div>
 
@@ -452,7 +452,24 @@
         const WORDS_PER_PAGE = 300;
 
         // File input handling
-        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        function initializeFileInput() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadArea = document.querySelector('.upload-area');
+            
+            // Remove existing listeners
+            fileInput.removeEventListener('change', handleFileSelect);
+            
+            // Add fresh listener
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // Update upload area click handler
+            uploadArea.onclick = function() {
+                fileInput.click();
+            };
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initializeFileInput);
 
         // Drag and drop functionality
         const uploadArea = document.querySelector('.upload-area');
@@ -470,120 +487,319 @@
             e.preventDefault();
             uploadArea.classList.remove('dragover');
             const files = e.dataTransfer.files;
-            if (files.length > 0 && files[0].name.endsWith('.epub')) {
-                handleFile(files[0]);
+            if (files.length > 0) {
+                const file = files[0];
+                const fileName = file.name.toLowerCase();
+                const isValidEPUB = fileName.endsWith('.epub') || 
+                                  fileName.endsWith('.epub.zip') || 
+                                  (file.type === 'application/zip' && fileName.includes('epub'));
+                
+                if (isValidEPUB) {
+                    handleFile(file);
+                } else {
+                    alert('Please drop a valid EPUB file (.epub or .epub.zip extension)');
+                }
             }
         });
 
         function handleFileSelect(event) {
+            console.log('File selected:', event.target.files);
+            console.log('Files length:', event.target.files.length);
+            
             const file = event.target.files[0];
-            if (file && file.name.endsWith('.epub')) {
-                handleFile(file);
+            console.log('First file:', file);
+            
+            if (file) {
+                console.log('File name:', file.name);
+                console.log('File type:', file.type);
+                console.log('File size:', file.size);
+                
+                const fileName = file.name.toLowerCase();
+                const isValidEPUB = fileName.endsWith('.epub') || 
+                                  fileName.endsWith('.epub.zip') || 
+                                  (file.type === 'application/zip' && fileName.includes('epub'));
+                
+                if (isValidEPUB) {
+                    console.log('Valid EPUB file, processing...');
+                    handleFile(file);
+                } else {
+                    console.log('Invalid file type');
+                    alert('Please select a valid EPUB file (.epub or .epub.zip extension)');
+                    event.target.value = '';
+                }
+            } else {
+                console.log('No file selected');
             }
         }
 
         async function handleFile(file) {
+            console.log('handleFile called with:', file);
+            
+            if (!file) {
+                console.error('No file provided to handleFile');
+                return;
+            }
+            
             try {
+                console.log('Starting file processing...');
                 document.getElementById('contentArea').innerHTML = '<div class="loading">Loading EPUB file...</div>';
                 document.getElementById('readerContainer').style.display = 'flex';
                 
+                console.log('Creating JSZip instance...');
                 const zip = new JSZip();
+                console.log('Loading file into JSZip...');
                 const zipContent = await zip.loadAsync(file);
+                console.log('File loaded successfully, parsing EPUB...');
                 
                 // Parse the EPUB
                 await parseEPUB(zipContent);
                 
                 // Load first page
                 if (pages.length > 0) {
+                    console.log('Loading first page...');
                     loadPage(0);
                     updateProgress();
                     document.getElementById('chapterNav').style.display = 'flex';
+                    console.log('EPUB loaded successfully!');
+                } else {
+                    console.error('No pages found in EPUB');
+                    document.getElementById('contentArea').innerHTML = 
+                        '<div class="error">No readable content found in this EPUB file.</div>';
                 }
                 
             } catch (error) {
                 console.error('Error loading EPUB:', error);
+                console.error('Error stack:', error.stack);
                 document.getElementById('contentArea').innerHTML = 
-                    '<div class="error">Error loading EPUB file. Please make sure it\'s a valid EPUB format.</div>';
+                    `<div class="error">Error loading EPUB file: ${error.message}<br><br>Please make sure it's a valid EPUB format.</div>`;
             }
         }
 
         async function parseEPUB(zip) {
-            // Find container.xml
-            const container = await zip.file('META-INF/container.xml').async('string');
-            const parser = new DOMParser();
-            const containerDoc = parser.parseFromString(container, 'text/xml');
+            console.log('Starting EPUB parsing...');
+            const allFiles = Object.keys(zip.files);
+            console.log('Available files in ZIP:', allFiles);
             
-            // Get OPF file path
-            const opfPath = containerDoc.querySelector('rootfile').getAttribute('full-path');
-            const opfContent = await zip.file(opfPath).async('string');
-            const opfDoc = parser.parseFromString(opfContent, 'text/xml');
+            // Find the EPUB root folder (if nested)
+            let epubRoot = '';
+            let containerFile = null;
             
-            // Extract metadata
-            const title = opfDoc.querySelector('title')?.textContent || 'Unknown Title';
-            const author = opfDoc.querySelector('creator')?.textContent || 'Unknown Author';
+            // Look for container.xml in various locations
+            const possiblePaths = [
+                'META-INF/container.xml',
+                'meta-inf/container.xml',
+                'container.xml'
+            ];
             
-            document.getElementById('bookTitle').textContent = title;
-            document.getElementById('bookAuthor').textContent = author;
+            // Check if files are nested in a folder
+            const nestedFolders = allFiles.filter(f => f.endsWith('.epub/')).map(f => f);
+            if (nestedFolders.length > 0) {
+                epubRoot = nestedFolders[0];
+                console.log('Found nested EPUB structure, root folder:', epubRoot);
+                
+                // Add nested paths to search
+                possiblePaths.push(
+                    epubRoot + 'META-INF/container.xml',
+                    epubRoot + 'meta-inf/container.xml',
+                    epubRoot + 'container.xml'
+                );
+            }
             
-            bookData.title = title;
-            bookData.author = author;
-            bookData.zip = zip;
-            bookData.opfPath = opfPath;
-            bookData.basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
-            
-            // Get spine (reading order)
-            const spine = Array.from(opfDoc.querySelectorAll('spine itemref')).map(item => 
-                item.getAttribute('idref')
-            );
-            
-            // Get manifest (file mappings)
-            const manifest = {};
-            opfDoc.querySelectorAll('manifest item').forEach(item => {
-                manifest[item.getAttribute('id')] = item.getAttribute('href');
-            });
-            
-            // Build chapters array
-            chapters = [];
-            for (let idref of spine) {
-                if (manifest[idref]) {
-                    const chapterPath = bookData.basePath + manifest[idref];
-                    chapters.push({
-                        id: idref,
-                        path: chapterPath,
-                        title: `Chapter ${chapters.length + 1}`
-                    });
+            // Try to find container.xml
+            for (const path of possiblePaths) {
+                containerFile = zip.file(path);
+                if (containerFile) {
+                    console.log('Found container.xml at:', path);
+                    break;
                 }
             }
             
-            // Try to get TOC from NCX file
+            if (!containerFile) {
+                throw new Error('container.xml not found. Available files: ' + allFiles.join(', '));
+            }
+            
             try {
-                const ncxId = opfDoc.querySelector('item[media-type="application/x-dtbncx+xml"]')?.getAttribute('id');
-                if (ncxId && manifest[ncxId]) {
-                    const ncxPath = bookData.basePath + manifest[ncxId];
-                    const ncxContent = await zip.file(ncxPath).async('string');
-                    const ncxDoc = parser.parseFromString(ncxContent, 'text/xml');
+                console.log('Reading container.xml...');
+                const container = await containerFile.async('string');
+                console.log('Container content:', container.substring(0, 200) + '...');
+                
+                const parser = new DOMParser();
+                const containerDoc = parser.parseFromString(container, 'text/xml');
+                
+                // Check for parsing errors
+                const parserError = containerDoc.querySelector('parsererror');
+                if (parserError) {
+                    throw new Error('XML parsing error: ' + parserError.textContent);
+                }
+                
+                // Get OPF file path
+                const rootfileElement = containerDoc.querySelector('rootfile');
+                if (!rootfileElement) {
+                    throw new Error('No rootfile element found in container.xml');
+                }
+                
+                let opfPath = rootfileElement.getAttribute('full-path');
+                console.log('Original OPF path:', opfPath);
+                
+                if (!opfPath) {
+                    throw new Error('No full-path attribute found in rootfile element');
+                }
+                
+                // Adjust OPF path for nested structure
+                if (epubRoot) {
+                    opfPath = epubRoot + opfPath;
+                }
+                
+                console.log('Adjusted OPF path:', opfPath);
+                
+                const opfFile = zip.file(opfPath);
+                if (!opfFile) {
+                    throw new Error(`OPF file not found at path: ${opfPath}`);
+                }
+                
+                const opfContent = await opfFile.async('string');
+                console.log('OPF content loaded, length:', opfContent.length);
+                
+                const opfDoc = parser.parseFromString(opfContent, 'text/xml');
+                
+                // Check for parsing errors
+                const opfParserError = opfDoc.querySelector('parsererror');
+                if (opfParserError) {
+                    throw new Error('OPF XML parsing error: ' + opfParserError.textContent);
+                }
+                
+                // Extract metadata with namespace handling
+                const titleElement = opfDoc.querySelector('title') || 
+                                   opfDoc.querySelector('dc\\:title') || 
+                                   opfDoc.querySelector('[*|title]') ||
+                                   opfDoc.querySelector('metadata title') ||
+                                   opfDoc.querySelector('metadata dc\\:title');
+                                   
+                const authorElement = opfDoc.querySelector('creator') || 
+                                    opfDoc.querySelector('dc\\:creator') || 
+                                    opfDoc.querySelector('[*|creator]') ||
+                                    opfDoc.querySelector('metadata creator') ||
+                                    opfDoc.querySelector('metadata dc\\:creator');
+                
+                const title = titleElement?.textContent || 'Unknown Title';
+                const author = authorElement?.textContent || 'Unknown Author';
+                
+                console.log('Book metadata - Title:', title, 'Author:', author);
+                
+                document.getElementById('bookTitle').textContent = title;
+                document.getElementById('bookAuthor').textContent = author;
+                
+                bookData.title = title;
+                bookData.author = author;
+                bookData.zip = zip;
+                bookData.opfPath = opfPath;
+                bookData.basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
+                bookData.epubRoot = epubRoot;
+                
+                console.log('Base path:', bookData.basePath);
+                console.log('EPUB root:', bookData.epubRoot);
+                
+                // Get spine (reading order) with namespace handling
+                const spineElements = opfDoc.querySelectorAll('spine itemref') || 
+                                    opfDoc.querySelectorAll('itemref') ||
+                                    opfDoc.querySelectorAll('spine > itemref');
+                                    
+                const spine = Array.from(spineElements).map(item => 
+                    item.getAttribute('idref')
+                ).filter(id => id);
+                
+                console.log('Spine items:', spine);
+                
+                if (spine.length === 0) {
+                    throw new Error('No spine items found in OPF file');
+                }
+                
+                // Get manifest (file mappings)
+                const manifest = {};
+                const manifestItems = opfDoc.querySelectorAll('manifest item') || 
+                                    opfDoc.querySelectorAll('item') ||
+                                    opfDoc.querySelectorAll('manifest > item');
+                                    
+                Array.from(manifestItems).forEach(item => {
+                    const id = item.getAttribute('id');
+                    const href = item.getAttribute('href');
+                    if (id && href) {
+                        manifest[id] = href;
+                    }
+                });
+                
+                console.log('Manifest items:', Object.keys(manifest).length);
+                
+                if (Object.keys(manifest).length === 0) {
+                    throw new Error('No manifest items found in OPF file');
+                }
+                
+                // Build chapters array
+                chapters = [];
+                for (let idref of spine) {
+                    if (manifest[idref]) {
+                        const chapterPath = bookData.basePath + manifest[idref];
+                        chapters.push({
+                            id: idref,
+                            path: chapterPath,
+                            title: `Chapter ${chapters.length + 1}`
+                        });
+                    }
+                }
+                
+                console.log('Chapters found:', chapters.length);
+                
+                if (chapters.length === 0) {
+                    throw new Error('No readable chapters found in EPUB');
+                }
+                
+                // Try to get TOC from NCX file
+                try {
+                    const ncxItems = Array.from(manifestItems).filter(item => 
+                        item.getAttribute('media-type') === 'application/x-dtbncx+xml'
+                    );
                     
-                    const navPoints = ncxDoc.querySelectorAll('navPoint');
-                    navPoints.forEach((navPoint, index) => {
-                        const label = navPoint.querySelector('navLabel text')?.textContent;
-                        const src = navPoint.querySelector('content')?.getAttribute('src');
-                        
-                        if (label && src) {
-                            const chapterIndex = chapters.findIndex(ch => 
-                                ch.path.includes(src.split('#')[0])
-                            );
-                            if (chapterIndex >= 0) {
-                                chapters[chapterIndex].title = label;
+                    if (ncxItems.length > 0) {
+                        const ncxId = ncxItems[0].getAttribute('id');
+                        if (ncxId && manifest[ncxId]) {
+                            const ncxPath = bookData.basePath + manifest[ncxId];
+                            const ncxFile = zip.file(ncxPath);
+                            if (ncxFile) {
+                                const ncxContent = await ncxFile.async('string');
+                                const ncxDoc = parser.parseFromString(ncxContent, 'text/xml');
+                                
+                                const navPoints = ncxDoc.querySelectorAll('navPoint');
+                                Array.from(navPoints).forEach((navPoint, index) => {
+                                    const labelElement = navPoint.querySelector('navLabel text');
+                                    const contentElement = navPoint.querySelector('content');
+                                    
+                                    const label = labelElement?.textContent;
+                                    const src = contentElement?.getAttribute('src');
+                                    
+                                    if (label && src) {
+                                        const chapterIndex = chapters.findIndex(ch => 
+                                            ch.path.includes(src.split('#')[0])
+                                        );
+                                        if (chapterIndex >= 0) {
+                                            chapters[chapterIndex].title = label;
+                                        }
+                                    }
+                                });
+                                console.log('NCX processed, updated chapter titles');
                             }
                         }
-                    });
+                    }
+                } catch (ncxError) {
+                    console.log('Could not parse NCX file for TOC:', ncxError.message);
                 }
-            } catch (e) {
-                console.log('Could not parse NCX file for TOC');
+                
+                // Generate TOC and split into pages
+                await generateTOCAndPages();
+                
+            } catch (error) {
+                console.error('Error in parseEPUB:', error);
+                throw error;
             }
-            
-            // Generate TOC and split into pages
-            await generateTOCAndPages();
         }
 
         async function generateTOCAndPages() {
@@ -648,15 +864,28 @@
                 /\.(jpg|jpeg|png|gif|svg|webp)$/i.test(filename)
             );
             
+            console.log('Found image files:', imageFiles.length);
+            
             for (const imagePath of imageFiles) {
                 try {
                     const imageData = await bookData.zip.file(imagePath).async('blob');
                     const imageUrl = URL.createObjectURL(imageData);
+                    
+                    // Store both full path and relative path for lookup
                     imageCache.set(imagePath, imageUrl);
+                    
+                    // Also store without the epub root folder for easier matching
+                    if (bookData.epubRoot && imagePath.startsWith(bookData.epubRoot)) {
+                        const relativePath = imagePath.substring(bookData.epubRoot.length);
+                        imageCache.set(relativePath, imageUrl);
+                    }
+                    
                 } catch (error) {
                     console.error('Error processing image:', imagePath, error);
                 }
             }
+            
+            console.log('Image cache populated with', imageCache.size, 'images');
         }
 
         async function processImagesInContent(content) {
@@ -1009,12 +1238,6 @@
             document.getElementById('readerContainer').style.display = 'none';
             document.getElementById('chapterNav').style.display = 'none';
             
-            // Reset file input properly
-            const fileInput = document.getElementById('fileInput');
-            fileInput.value = '';
-            fileInput.type = '';
-            fileInput.type = 'file';
-            
             // Close menu
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
@@ -1035,12 +1258,14 @@
             pages = [];
             bookData = {};
             
-            // Force refresh of upload area
-            const uploadArea = document.querySelector('.upload-area');
-            uploadArea.style.display = 'none';
-            setTimeout(() => {
-                uploadArea.style.display = 'block';
-            }, 10);
+            // Completely reset file input
+            const fileInput = document.getElementById('fileInput');
+            const parent = fileInput.parentNode;
+            const newInput = fileInput.cloneNode(true);
+            parent.replaceChild(newInput, fileInput);
+            
+            // Reinitialize file input
+            setTimeout(initializeFileInput, 100);
         }
 
         // Keyboard navigation
