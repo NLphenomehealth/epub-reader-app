@@ -36,6 +36,11 @@
             margin-bottom: 20px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .header.hidden {
+            display: none;
         }
 
         .upload-area {
@@ -46,6 +51,7 @@
             background: rgba(102, 126, 234, 0.05);
             transition: all 0.3s ease;
             cursor: pointer;
+            position: relative;
         }
 
         .upload-area:hover {
@@ -59,8 +65,33 @@
             background: rgba(76, 175, 80, 0.1);
         }
 
-        #fileInput {
+        .upload-area.compact {
+            padding: 10px 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+            position: relative;
+        }
+
+        .upload-area.compact .upload-text {
+            font-size: 14px;
+            margin-bottom: 0;
+        }
+
+        .upload-area.compact .upload-hint {
             display: none;
+        }
+
+        #fileInput, #compactFileInput {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 10;
         }
 
         .upload-text {
@@ -86,6 +117,17 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
+        /* Hover zone at the top of the reader */
+        .toolbar-hover-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 100px;
+            z-index: 999;
+            /* Invisible but hoverable */
+        }
+
         .toolbar {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -105,7 +147,9 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         }
 
-        .reader-container:hover .toolbar {
+        /* Show toolbar when hovering over the hover zone */
+        .toolbar-hover-zone:hover ~ .toolbar,
+        .toolbar:hover {
             transform: translateY(0);
         }
 
@@ -386,7 +430,7 @@
         }
 
         .char-untyped {
-            color: #ccc;
+            color: #888;
         }
 
         .word-wrapper {
@@ -538,7 +582,7 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <div class="header" id="header">
             <div class="upload-area" id="uploadArea">
                 <div class="upload-text">📚 Select EPUB File</div>
                 <div class="upload-hint">Click here or drag and drop an EPUB file to start reading</div>
@@ -547,6 +591,7 @@
         </div>
 
         <div class="reader-container" id="readerContainer">
+            <div class="toolbar-hover-zone"></div>
             <div class="toolbar">
                 <div class="book-info">
                     <div class="book-title" id="bookTitle">Loading...</div>
@@ -562,6 +607,10 @@
                     </div>
                     <button class="btn" id="nextBtn" onclick="nextPage()">Next →</button>
                     <button class="btn" onclick="closeBook()">Close Book</button>
+                    <div class="upload-area compact" id="compactUploadArea" style="display: none;">
+                        <div class="upload-text">📚 New Book</div>
+                        <input type="file" id="compactFileInput" accept=".epub,.zip" />
+                    </div>
                 </div>
             </div>
             <div class="reader-content">
@@ -612,57 +661,155 @@
             totalChars: 0,
             wordsTyped: 0
         };
-        let isTransitioningPage = false; // Flag to prevent multiple transitions
+        let isTransitioningPage = false;
+        let hasLoadedBook = false; // Track if a book has been loaded
         const WORDS_PER_PAGE = 300;
 
         // File input handling
         function initializeFileInput() {
             const fileInput = document.getElementById('fileInput');
-            const uploadArea = document.querySelector('.upload-area');
+            const compactFileInput = document.getElementById('compactFileInput');
+            const uploadArea = document.getElementById('uploadArea');
+            const compactUploadArea = document.getElementById('compactUploadArea');
+            
+            console.log('Initializing file inputs...', {
+                fileInput: !!fileInput,
+                compactFileInput: !!compactFileInput,
+                uploadArea: !!uploadArea,
+                compactUploadArea: !!compactUploadArea
+            });
             
             // Remove existing listeners
-            fileInput.removeEventListener('change', handleFileSelect);
+            if (fileInput) {
+                const newFileInput = fileInput.cloneNode(true);
+                fileInput.parentNode.replaceChild(newFileInput, fileInput);
+                newFileInput.addEventListener('change', handleFileSelect);
+            }
             
-            // Add fresh listener
-            fileInput.addEventListener('change', handleFileSelect);
-            
-            // Update upload area click handler
-            uploadArea.onclick = function() {
-                fileInput.click();
-            };
+            if (compactFileInput) {
+                const newCompactFileInput = compactFileInput.cloneNode(true);
+                compactFileInput.parentNode.replaceChild(newCompactFileInput, compactFileInput);
+                newCompactFileInput.addEventListener('change', handleFileSelect);
+            }
         }
 
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', initializeFileInput);
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeFileInput();
+            
+            // Re-initialize when showing compact upload
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                        const compactUploadArea = document.getElementById('compactUploadArea');
+                        if (compactUploadArea && compactUploadArea.style.display !== 'none') {
+                            setTimeout(initializeFileInput, 100);
+                        }
+                    }
+                });
+            });
+            
+            const compactUploadArea = document.getElementById('compactUploadArea');
+            if (compactUploadArea) {
+                observer.observe(compactUploadArea, { attributes: true });
+            }
+        });
 
         // Drag and drop functionality
-        const uploadArea = document.querySelector('.upload-area');
-        
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-        
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-        
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                const file = files[0];
-                const fileName = file.name.toLowerCase();
-                const isValidEPUB = fileName.endsWith('.epub') || 
-                                  fileName.endsWith('.epub.zip') || 
-                                  (file.type === 'application/zip' && fileName.includes('epub'));
+        function setupDragAndDrop() {
+            const uploadArea = document.getElementById('uploadArea');
+            const compactUploadArea = document.getElementById('compactUploadArea');
+            
+            console.log('Setting up drag and drop...', {
+                uploadArea: !!uploadArea,
+                compactUploadArea: !!compactUploadArea
+            });
+            
+            // Setup for main upload area
+            if (uploadArea) {
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.add('dragover');
+                });
                 
-                if (isValidEPUB) {
-                    handleFile(file);
-                } else {
-                    alert('Please drop a valid EPUB file (.epub or .epub.zip extension)');
-                }
+                uploadArea.addEventListener('dragleave', () => {
+                    uploadArea.classList.remove('dragover');
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.classList.remove('dragover');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        const fileName = file.name.toLowerCase();
+                        const isValidEPUB = fileName.endsWith('.epub') || 
+                                          fileName.endsWith('.epub.zip') || 
+                                          (file.type === 'application/zip' && fileName.includes('epub'));
+                        
+                        if (isValidEPUB) {
+                            handleFile(file);
+                        } else {
+                            alert('Please drop a valid EPUB file (.epub or .epub.zip extension)');
+                        }
+                    }
+                });
+            }
+            
+            // Setup for compact upload area
+            if (compactUploadArea) {
+                compactUploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    compactUploadArea.classList.add('dragover');
+                });
+                
+                compactUploadArea.addEventListener('dragleave', (e) => {
+                    e.stopPropagation();
+                    compactUploadArea.classList.remove('dragover');
+                });
+                
+                compactUploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    compactUploadArea.classList.remove('dragover');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        const fileName = file.name.toLowerCase();
+                        const isValidEPUB = fileName.endsWith('.epub') || 
+                                          fileName.endsWith('.epub.zip') || 
+                                          (file.type === 'application/zip' && fileName.includes('epub'));
+                        
+                        if (isValidEPUB) {
+                            handleFile(file);
+                        } else {
+                            alert('Please drop a valid EPUB file (.epub or .epub.zip extension)');
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Call setupDragAndDrop when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            setupDragAndDrop();
+            
+            // Re-setup when compact upload becomes visible
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+                        const compactUploadArea = document.getElementById('compactUploadArea');
+                        if (compactUploadArea && compactUploadArea.style.display !== 'none') {
+                            setTimeout(setupDragAndDrop, 100);
+                        }
+                    }
+                });
+            });
+            
+            const compactUploadArea = document.getElementById('compactUploadArea');
+            if (compactUploadArea) {
+                observer.observe(compactUploadArea, { attributes: true });
             }
         });
 
@@ -704,10 +851,48 @@
                 return;
             }
             
+            // Clean up any existing book data first
+            if (bookData.zip) {
+                // Clean up image cache
+                for (const [path, url] of imageCache.entries()) {
+                    URL.revokeObjectURL(url);
+                }
+                imageCache.clear();
+                
+                // Reset variables
+                currentBook = null;
+                currentChapter = 0;
+                currentPage = 0;
+                chapters = [];
+                pages = [];
+                bookData = {};
+                typingMode = false;
+                isTransitioningPage = false;
+                
+                // Exit typing mode if active
+                const typingOverlay = document.getElementById('typingOverlay');
+                if (typingOverlay.classList.contains('active')) {
+                    toggleTypingMode();
+                }
+            }
+            
             try {
                 console.log('Starting file processing...');
                 document.getElementById('contentArea').innerHTML = '<div class="loading">Loading EPUB file...</div>';
                 document.getElementById('readerContainer').style.display = 'flex';
+                
+                // Hide the main header and show compact upload in toolbar
+                if (!hasLoadedBook) {
+                    document.getElementById('header').classList.add('hidden');
+                    document.getElementById('compactUploadArea').style.display = 'flex';
+                    hasLoadedBook = true;
+                    
+                    // Re-initialize file inputs and drag-drop after showing compact upload
+                    setTimeout(() => {
+                        initializeFileInput();
+                        setupDragAndDrop();
+                    }, 100);
+                }
                 
                 console.log('Creating JSZip instance...');
                 const zip = new JSZip();
@@ -725,6 +910,10 @@
                     updateProgress();
                     document.getElementById('chapterNav').style.display = 'flex';
                     console.log('EPUB loaded successfully!');
+                    
+                    // Reset file inputs after successful load
+                    document.getElementById('fileInput').value = '';
+                    document.getElementById('compactFileInput').value = '';
                 } else {
                     console.error('No pages found in EPUB');
                     document.getElementById('contentArea').innerHTML = 
@@ -1806,6 +1995,10 @@
             document.getElementById('readerContainer').style.display = 'none';
             document.getElementById('chapterNav').style.display = 'none';
             
+            // Show the main header again
+            document.getElementById('header').classList.remove('hidden');
+            hasLoadedBook = false;
+            
             // Close menu
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
@@ -1834,11 +2027,11 @@
                 toggleTypingMode();
             }
             
-            // Completely reset file input
+            // Reset file inputs
             const fileInput = document.getElementById('fileInput');
-            const parent = fileInput.parentNode;
-            const newInput = fileInput.cloneNode(true);
-            parent.replaceChild(newInput, fileInput);
+            const compactFileInput = document.getElementById('compactFileInput');
+            fileInput.value = '';
+            compactFileInput.value = '';
             
             // Reinitialize file input
             setTimeout(initializeFileInput, 100);
