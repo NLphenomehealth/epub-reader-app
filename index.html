@@ -284,6 +284,124 @@
             overflow-y: auto;
             background: white;
             line-height: 1.6;
+            position: relative;
+        }
+
+        .typing-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            display: none;
+            flex-direction: column;
+            z-index: 500;
+        }
+
+        .typing-overlay.active {
+            display: flex;
+        }
+
+        .typing-content {
+            flex: 1;
+            padding: 40px;
+            padding-top: 80px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .typing-text {
+            flex: 1;
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            line-height: 2;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 30px;
+            background: #fafafa;
+            overflow-y: auto;
+            overflow-x: hidden;
+            cursor: text;
+            position: relative;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .hidden-typing-input {
+            position: absolute;
+            left: -9999px;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .typing-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            display: none;
+            flex-direction: column;
+            z-index: 500;
+        }
+
+        .typing-overlay.active {
+            display: flex;
+        }
+
+        .typing-stats {
+            display: flex;
+            gap: 30px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #667eea;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.05);
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .typing-instructions {
+            color: #999;
+            font-size: 12px;
+            font-style: italic;
+            font-weight: normal;
+        }
+
+        .char-correct {
+            color: #333;
+            background: rgba(76, 175, 80, 0.1);
+        }
+
+        .char-incorrect {
+            color: #fff;
+            background: #f44336;
+        }
+
+        .char-untyped {
+            color: #ccc;
+        }
+
+        .current-char {
+            background: #667eea;
+            color: white;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
         }
 
         .content-area p {
@@ -414,6 +532,7 @@
                 </div>
                 <div class="controls">
                     <button class="btn" id="menuBtn" onclick="toggleMenu()">☰ Menu</button>
+                    <button class="btn" id="typingModeBtn" onclick="toggleTypingMode()">⌨️ Typing Mode</button>
                     <button class="btn" id="prevBtn" onclick="previousPage()">← Previous</button>
                     <span class="page-info" id="pageInfo">Page 1 of 1</span>
                     <div class="progress">
@@ -432,6 +551,18 @@
                 <div class="content-area" id="contentArea">
                     <div class="loading">Loading book content...</div>
                 </div>
+                <div class="typing-overlay" id="typingOverlay">
+                    <div class="typing-content">
+                        <div class="typing-text" id="typingText"></div>
+                        <input type="text" class="hidden-typing-input" id="hiddenTypingInput" autocomplete="off" spellcheck="false">
+                        <div class="typing-stats">
+                            <span>WPM: <span id="wpmStat">0</span></span>
+                            <span>Accuracy: <span id="accuracyStat">100%</span></span>
+                            <span>Progress: <span id="progressStat">0%</span></span>
+                            <div class="typing-instructions">Click anywhere and start typing...</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -449,6 +580,16 @@
         let pages = [];
         let bookData = {};
         let imageCache = new Map();
+        let typingMode = false;
+        let typingText = '';
+        let typingPosition = 0;
+        let typedText = '';
+        let typingStats = {
+            startTime: null,
+            correctChars: 0,
+            totalChars: 0,
+            wordsTyped: 0
+        };
         const WORDS_PER_PAGE = 300;
 
         // File input handling
@@ -1132,6 +1273,207 @@
             
             sidebar.classList.toggle('show');
             overlay.classList.toggle('show');
+        }
+
+        function toggleTypingMode() {
+            if (!pages || pages.length === 0) {
+                alert('Please load an EPUB file first!');
+                return;
+            }
+            
+            typingMode = !typingMode;
+            const typingOverlay = document.getElementById('typingOverlay');
+            const typingModeBtn = document.getElementById('typingModeBtn');
+            
+            if (typingMode) {
+                // Enter typing mode
+                setupTypingMode();
+                typingOverlay.classList.add('active');
+                typingModeBtn.textContent = '📖 Reading Mode';
+                typingModeBtn.style.background = 'rgba(244, 67, 54, 0.2)';
+            } else {
+                // Exit typing mode
+                typingOverlay.classList.remove('active');
+                typingModeBtn.textContent = '⌨️ Typing Mode';
+                typingModeBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+                resetTypingStats();
+            }
+        }
+
+        function setupTypingMode() {
+            const currentPageData = pages[currentPage];
+            if (!currentPageData) return;
+            
+            // Extract plain text from HTML content
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = currentPageData.content;
+            
+            // Remove page headers and other non-content elements
+            const pageHeader = tempDiv.querySelector('.page-header');
+            if (pageHeader) pageHeader.remove();
+            
+            // Get clean text content
+            typingText = tempDiv.textContent || tempDiv.innerText || '';
+            typingText = typingText.trim().replace(/\s+/g, ' '); // Normalize whitespace
+            
+            if (!typingText) {
+                alert('No text content found on this page!');
+                toggleTypingMode(); // Exit typing mode
+                return;
+            }
+            
+            console.log('Typing text setup:', typingText.substring(0, 100) + '...');
+            console.log('Text length:', typingText.length);
+            
+            typingPosition = 0;
+            typedText = '';
+            resetTypingStats();
+            
+            // Setup the typing interface
+            const typingTextElement = document.getElementById('typingText');
+            const hiddenInput = document.getElementById('hiddenTypingInput');
+            
+            // Display text with all characters in gray initially
+            displayTypingText();
+            
+            // Clear and setup hidden input
+            hiddenInput.value = '';
+            
+            // Remove existing event listeners
+            hiddenInput.removeEventListener('input', handleHiddenInput);
+            hiddenInput.removeEventListener('keydown', handleHiddenKeydown);
+            typingTextElement.removeEventListener('click', focusHiddenInput);
+            
+            // Add event listeners
+            hiddenInput.addEventListener('input', handleHiddenInput);
+            hiddenInput.addEventListener('keydown', handleHiddenKeydown);
+            typingTextElement.addEventListener('click', focusHiddenInput);
+            
+            // Focus the hidden input
+            setTimeout(() => {
+                hiddenInput.focus();
+                console.log('Hidden input focused');
+            }, 100);
+        }
+
+        function focusHiddenInput() {
+            const hiddenInput = document.getElementById('hiddenTypingInput');
+            hiddenInput.focus();
+        }
+
+        function handleHiddenInput(event) {
+            console.log('Hidden input event:', event.target.value);
+            
+            typedText = event.target.value;
+            updateTypingDisplay();
+        }
+
+        function handleHiddenKeydown(event) {
+            console.log('Hidden keydown:', event.key);
+            
+            // Handle backspace and other special keys
+            if (event.key === 'Escape') {
+                toggleTypingMode();
+            }
+            
+            // Let the input handle the character naturally
+        }
+
+        function updateTypingDisplay() {
+            console.log('Updating display - Typed:', typedText.length, 'characters');
+            
+            // Start timer on first character
+            if (!typingStats.startTime && typedText.length === 1) {
+                typingStats.startTime = Date.now();
+                console.log('Timer started');
+            }
+            
+            // Calculate correct characters (count all matching characters, not just consecutive)
+            let correctChars = 0;
+            for (let i = 0; i < typedText.length && i < typingText.length; i++) {
+                if (typedText[i] === typingText[i]) {
+                    correctChars++;
+                }
+            }
+            
+            typingPosition = typedText.length;
+            typingStats.correctChars = correctChars;
+            typingStats.totalChars = typedText.length;
+            
+            console.log('Position:', typingPosition, 'Correct chars:', correctChars);
+            
+            // Update display
+            displayTypingText();
+            updateTypingStats();
+            
+            // Check if page is complete (all characters typed and all correct)
+            if (typedText.length === typingText.length && correctChars === typingText.length) {
+                setTimeout(() => {
+                    alert('Page completed! Great job!');
+                    if (currentPage < pages.length - 1) {
+                        if (confirm('Move to next page?')) {
+                            nextPage();
+                            setTimeout(setupTypingMode, 100);
+                        }
+                    }
+                }, 100);
+            }
+        }
+
+        function displayTypingText() {
+            const typingTextElement = document.getElementById('typingText');
+            let html = '';
+            
+            for (let i = 0; i < typingText.length; i++) {
+                const char = typingText[i];
+                let className = 'char-untyped';
+                
+                if (i < typedText.length) {
+                    // Character has been typed
+                    if (typedText[i] === typingText[i]) {
+                        // Correct character
+                        className = 'char-correct';
+                    } else {
+                        // Incorrect character - only highlight this specific character
+                        className = 'char-incorrect';
+                    }
+                } else if (i === typedText.length) {
+                    // This is the current character to type (cursor position)
+                    className = 'current-char';
+                }
+                // Characters beyond the typed position remain 'char-untyped' (gray)
+                
+                if (char === ' ') {
+                    html += `<span class="${className}">&nbsp;</span>`;
+                } else if (char === '\n') {
+                    html += `<span class="${className}"><br></span>`;
+                } else {
+                    html += `<span class="${className}">${char}</span>`;
+                }
+            }
+            
+            typingTextElement.innerHTML = html;
+            
+            // Scroll to current position
+            const currentCharElement = typingTextElement.querySelector('.current-char');
+            if (currentCharElement) {
+                currentCharElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        function resetTypingStats() {
+            typingStats = {
+                startTime: null,
+                correctChars: 0,
+                totalChars: 0,
+                wordsTyped: 0
+            };
+            typingPosition = 0;
+            typedText = '';
+            
+            document.getElementById('wpmStat').textContent = '0';
+            document.getElementById('accuracyStat').textContent = '100%';
+            document.getElementById('progressStat').textContent = '0%';
         }
 
         function generateEnhancedTOC() {
