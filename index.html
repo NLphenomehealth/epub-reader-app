@@ -1499,8 +1499,8 @@
             displayTypingText();
             updateTypingStats();
             
-            // Check if page is complete (all characters typed and all correct)
-            if (typedText.length === typingText.length && correctChars === typingText.length && !isTransitioningPage) {
+            // Check if page is complete (all characters typed, regardless of accuracy)
+            if (typedText.length === typingText.length && !isTransitioningPage) {
                 console.log('Page completed! Moving to next page...');
                 isTransitioningPage = true; // Prevent multiple transitions
                 
