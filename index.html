@@ -317,17 +317,17 @@
             font-family: 'Courier New', monospace;
             font-size: 18px;
             line-height: 2;
-            white-space: nowrap;
-            overflow-wrap: normal;
-            word-wrap: normal;
+            white-space: pre-wrap;
+            word-wrap: break-word;
             word-break: normal;
+            overflow-wrap: break-word;
             hyphens: none;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             padding: 30px;
             background: #fafafa;
             overflow-y: auto;
-            overflow-x: auto;
+            overflow-x: hidden;
             cursor: text;
             position: relative;
             max-width: 100%;
@@ -410,7 +410,7 @@
         }
 
         .word-wrapper {
-            display: inline-block;
+            display: inline;
             white-space: nowrap;
         }
 
@@ -1433,7 +1433,14 @@
         function handleHiddenInput(event) {
             console.log('Hidden input event:', event.target.value);
             
-            typedText = event.target.value;
+            const newTypedText = event.target.value;
+            
+            // Normalize the typed text (convert smart quotes to regular quotes)
+            typedText = normalizeQuotes(newTypedText);
+            
+            console.log('Original typed:', newTypedText);
+            console.log('Normalized typed:', typedText);
+            
             updateTypingDisplay();
         }
 
@@ -1477,15 +1484,21 @@
             
             // Check if page is complete (all characters typed and all correct)
             if (typedText.length === typingText.length && correctChars === typingText.length) {
+                console.log('Page completed! Moving to next page...');
+                
                 setTimeout(() => {
-                    alert('Page completed! Great job!');
                     if (currentPage < pages.length - 1) {
-                        if (confirm('Move to next page?')) {
-                            nextPage();
-                            setTimeout(setupTypingMode, 100);
-                        }
+                        // Automatically move to next page
+                        nextPage();
+                        setTimeout(() => {
+                            setupTypingMode();
+                        }, 100);
+                    } else {
+                        // This was the last page
+                        alert('🎉 Congratulations! You have completed the entire book! Great job on your typing practice!');
+                        toggleTypingMode(); // Exit typing mode
                     }
-                }, 100);
+                }, 500); // Small delay to show completion
             }
         }
 
@@ -1493,7 +1506,7 @@
             const typingTextElement = document.getElementById('typingText');
             let html = '';
             
-            // Split text into words to prevent line breaks within words
+            // Split text into words but maintain proper wrapping
             const words = typingText.split(' ');
             let charIndex = 0;
             
@@ -1525,7 +1538,7 @@
                     charIndex++;
                 }
                 
-                // Wrap each word in a span to prevent breaking
+                // Wrap each word to prevent breaking, but allow natural line wrapping between words
                 html += `<span class="word-wrapper">${wordHtml}</span>`;
                 
                 // Add space after word (except for last word)
@@ -1541,8 +1554,13 @@
                         spaceClass = 'current-char';
                     }
                     
-                    html += `<span class="${spaceClass}">&nbsp;</span>`;
+                    html += `<span class="${spaceClass}"> </span>`;
                     charIndex++;
+                }
+                
+                // Add line break opportunity after certain punctuation for better readability
+                if (word.match(/[.!?]$/)) {
+                    html += '<wbr>'; // Word break opportunity
                 }
             }
             
@@ -1565,9 +1583,16 @@
             typingPosition = 0;
             typedText = '';
             
-            document.getElementById('wpmStat').textContent = '0';
-            document.getElementById('accuracyStat').textContent = '100%';
-            document.getElementById('progressStat').textContent = '0%';
+            console.log('Stats reset');
+            
+            // Reset display
+            const wpmElement = document.getElementById('wpmStat');
+            const accuracyElement = document.getElementById('accuracyStat');
+            const progressElement = document.getElementById('progressStat');
+            
+            if (wpmElement) wpmElement.textContent = '0';
+            if (accuracyElement) accuracyElement.textContent = '100%';
+            if (progressElement) progressElement.textContent = '0%';
         }
 
         function generateEnhancedTOC() {
