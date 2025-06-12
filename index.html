@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: rgba(102, 126, 234, 0.05);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: rgba(118, 75, 162, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .upload-area.dragover {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .upload-text {
+            font-size: 18px;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .upload-hint {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .reader-container {
+            display: none;
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .toolbar {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .book-info {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .book-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .book-author {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            color: white;
+            font-size: 14px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            height: 6px;
+            overflow: hidden;
+            min-width: 150px;
+        }
+
+        .progress-bar {
+            background: white;
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .reader-content {
+            display: flex;
+            height: calc(100vh - 200px);
+        }
+
+        .sidebar {
+            width: 250px;
+            background: rgba(248, 249, 250, 0.8);
+            border-right: 1px solid rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .toc-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .toc-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 6px;
+            margin-bottom: 5px;
+            font-size: 14px;
+            line-height: 1.4;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .toc-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea;
+            border-left-color: #667eea;
+        }
+
+        .toc-item.active {
+            background: #667eea;
+            color: white;
+            border-left-color: white;
+        }
+
+        .toc-item.chapter-title {
+            font-weight: bold;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            background: rgba(102, 126, 234, 0.05);
+            border-left-color: #667eea;
+        }
+
+        .toc-item.page-item {
+            margin-left: 15px;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+
+        .page-info {
+            color: white;
+            font-size: 14px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+
+        .content-area {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+            background: white;
+            line-height: 1.6;
+        }
+
+        .content-area h1, .content-area h2, .content-area h3 {
+            color: #333;
+            margin: 20px 0 15px 0;
+        }
+
+        .content-area h1 {
+            font-size: 28px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .content-area h2 {
+            font-size: 24px;
+        }
+
+        .content-area h3 {
+            font-size: 20px;
+        }
+
+        .content-area p {
+            margin-bottom: 15px;
+            text-align: justify;
+            font-size: 16px;
+        }
+
+        .content-area img {
+            max-width: 100%;
+            height: auto;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #667eea;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #c62828;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+            
+            .content-area {
+                padding: 20px;
+            }
+            
+            .controls {
+                justify-content: center;
+            }
+            
+            .toolbar {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+
+        .chapter-nav {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: none;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-text">📚 Select EPUB File</div>
+                <div class="upload-hint">Click here or drag and drop an EPUB file to start reading</div>
+                <input type="file" id="fileInput" accept=".epub" />
+            </div>
+        </div>
+
+        <div class="reader-container" id="readerContainer">
+            <div class="toolbar">
+                <div class="book-info">
+                    <div class="book-title" id="bookTitle">Loading...</div>
+                    <div class="book-author" id="bookAuthor">Please wait...</div>
+                </div>
+                <div class="controls">
+                    <button class="btn" id="prevBtn" onclick="previousPage()">← Previous</button>
+                    <span class="page-info" id="pageInfo">Page 1 of 1</span>
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <button class="btn" id="nextBtn" onclick="nextPage()">Next →</button>
+                    <button class="btn" onclick="closeBook()">Close Book</button>
+                </div>
+            </div>
+            <div class="reader-content">
+                <div class="sidebar">
+                    <div class="toc-title">Table of Contents</div>
+                    <div id="tocContainer"></div>
+                </div>
+                <div class="content-area" id="contentArea">
+                    <div class="loading">Loading book content...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chapter-nav" id="chapterNav">
+            <button class="nav-btn" onclick="previousPage()">‹</button>
+            <button class="nav-btn" onclick="nextPage()">›</button>
+        </div>
+    </div>
+
+    <script>
+        let currentBook = null;
+        let currentChapter = 0;
+        let currentPage = 0;
+        let chapters = [];
+        let pages = [];
+        let bookData = {};
+        const WORDS_PER_PAGE = 300;
+
+        // File input handling
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        // Drag and drop functionality
+        const uploadArea = document.querySelector('.upload-area');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].name.endsWith('.epub')) {
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.name.endsWith('.epub')) {
+                handleFile(file);
+            }
+        }
+
+        async function handleFile(file) {
+            try {
+                document.getElementById('contentArea').innerHTML = '<div class="loading">Loading EPUB file...</div>';
+                document.getElementById('readerContainer').style.display = 'flex';
+                
+                const zip = new JSZip();
+                const zipContent = await zip.loadAsync(file);
+                
+                // Parse the EPUB
+                await parseEPUB(zipContent);
+                
+                // Load first page
+                if (pages.length > 0) {
+                    loadPage(0);
+                    updateProgress();
+                    document.getElementById('chapterNav').style.display = 'flex';
+                }
+                
+            } catch (error) {
+                console.error('Error loading EPUB:', error);
+                document.getElementById('contentArea').innerHTML = 
+                    '<div class="error">Error loading EPUB file. Please make sure it\'s a valid EPUB format.</div>';
+            }
+        }
+
+        async function parseEPUB(zip) {
+            // Find container.xml
+            const container = await zip.file('META-INF/container.xml').async('string');
+            const parser = new DOMParser();
+            const containerDoc = parser.parseFromString(container, 'text/xml');
+            
+            // Get OPF file path
+            const opfPath = containerDoc.querySelector('rootfile').getAttribute('full-path');
+            const opfContent = await zip.file(opfPath).async('string');
+            const opfDoc = parser.parseFromString(opfContent, 'text/xml');
+            
+            // Extract metadata
+            const title = opfDoc.querySelector('title')?.textContent || 'Unknown Title';
+            const author = opfDoc.querySelector('creator')?.textContent || 'Unknown Author';
+            
+            document.getElementById('bookTitle').textContent = title;
+            document.getElementById('bookAuthor').textContent = author;
+            
+            bookData.title = title;
+            bookData.author = author;
+            bookData.zip = zip;
+            bookData.opfPath = opfPath;
+            bookData.basePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
+            
+            // Get spine (reading order)
+            const spine = Array.from(opfDoc.querySelectorAll('spine itemref')).map(item => 
+                item.getAttribute('idref')
+            );
+            
+            // Get manifest (file mappings)
+            const manifest = {};
+            opfDoc.querySelectorAll('manifest item').forEach(item => {
+                manifest[item.getAttribute('id')] = item.getAttribute('href');
+            });
+            
+            // Build chapters array
+            chapters = [];
+            for (let idref of spine) {
+                if (manifest[idref]) {
+                    const chapterPath = bookData.basePath + manifest[idref];
+                    chapters.push({
+                        id: idref,
+                        path: chapterPath,
+                        title: `Chapter ${chapters.length + 1}`
+                    });
+                }
+            }
+            
+            // Try to get TOC from NCX file
+            try {
+                const ncxId = opfDoc.querySelector('item[media-type="application/x-dtbncx+xml"]')?.getAttribute('id');
+                if (ncxId && manifest[ncxId]) {
+                    const ncxPath = bookData.basePath + manifest[ncxId];
+                    const ncxContent = await zip.file(ncxPath).async('string');
+                    const ncxDoc = parser.parseFromString(ncxContent, 'text/xml');
+                    
+                    const navPoints = ncxDoc.querySelectorAll('navPoint');
+                    navPoints.forEach((navPoint, index) => {
+                        const label = navPoint.querySelector('navLabel text')?.textContent;
+                        const src = navPoint.querySelector('content')?.getAttribute('src');
+                        
+                        if (label && src) {
+                            const chapterIndex = chapters.findIndex(ch => 
+                                ch.path.includes(src.split('#')[0])
+                            );
+                            if (chapterIndex >= 0) {
+                                chapters[chapterIndex].title = label;
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.log('Could not parse NCX file for TOC');
+            }
+            
+            // Generate TOC and split into pages
+            await generateTOCAndPages();
+        }
+
+        async function generateTOCAndPages() {
+            const tocContainer = document.getElementById('tocContainer');
+            tocContainer.innerHTML = '';
+            pages = [];
+            
+            // Process each chapter
+            for (let chapterIndex = 0; chapterIndex < chapters.length; chapterIndex++) {
+                const chapter = chapters[chapterIndex];
+                
+                try {
+                    // Load chapter content
+                    const chapterContent = await bookData.zip.file(chapter.path).async('string');
+                    
+                    // Clean up HTML content
+                    let cleanContent = chapterContent
+                        .replace(/<\?xml[^>]*\?>/g, '')
+                        .replace(/<!DOCTYPE[^>]*>/g, '')
+                        .replace(/<html[^>]*>/g, '<div>')
+                        .replace(/<\/html>/g, '</div>')
+                        .replace(/<head[^>]*>[\s\S]*?<\/head>/g, '')
+                        .replace(/<body[^>]*>/g, '<div>')
+                        .replace(/<\/body>/g, '</div>');
+                    
+                    // Parse content
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(cleanContent, 'text/html');
+                    const body = doc.body || doc.querySelector('div');
+                    
+                    if (body) {
+                        // Split content into pages
+                        const chapterPages = splitIntoPages(body.innerHTML, chapter.title, chapterIndex);
+                        pages.push(...chapterPages);
+                    }
+                } catch (error) {
+                    console.error('Error processing chapter:', chapter.title, error);
+                    // Add error page
+                    pages.push({
+                        content: `<div class="error">Error loading chapter: ${chapter.title}</div>`,
+                        chapterIndex: chapterIndex,
+                        chapterTitle: chapter.title,
+                        pageNumber: 1,
+                        totalPagesInChapter: 1
+                    });
+                }
+            }
+            
+            // Generate enhanced TOC
+            generateEnhancedTOC();
+        }
+
+        function splitIntoPages(content, chapterTitle, chapterIndex) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            
+            // Get all text content and split by words
+            const textContent = tempDiv.textContent || tempDiv.innerText || '';
+            const words = textContent.split(/\s+/).filter(word => word.length > 0);
+            
+            if (words.length === 0) {
+                return [{
+                    content: content,
+                    chapterIndex: chapterIndex,
+                    chapterTitle: chapterTitle,
+                    pageNumber: 1,
+                    totalPagesInChapter: 1
+                }];
+            }
+            
+            // If chapter is short enough, return as single page
+            if (words.length <= WORDS_PER_PAGE) {
+                return [{
+                    content: content,
+                    chapterIndex: chapterIndex,
+                    chapterTitle: chapterTitle,
+                    pageNumber: 1,
+                    totalPagesInChapter: 1
+                }];
+            }
+            
+            // Split content by paragraphs first to maintain structure
+            const paragraphs = extractParagraphs(tempDiv);
+            const chapterPages = [];
+            let currentPageContent = [];
+            let currentWordCount = 0;
+            let pageNumber = 1;
+            
+            for (let i = 0; i < paragraphs.length; i++) {
+                const paragraph = paragraphs[i];
+                const paragraphWords = paragraph.text.split(/\s+/).filter(word => word.length > 0);
+                const paragraphWordCount = paragraphWords.length;
+                
+                // If adding this paragraph would exceed the word limit
+                if (currentWordCount + paragraphWordCount > WORDS_PER_PAGE && currentPageContent.length > 0) {
+                    // Create a page with current content
+                    const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
+                    chapterPages.push({
+                        content: pageContent,
+                        chapterIndex: chapterIndex,
+                        chapterTitle: chapterTitle,
+                        pageNumber: pageNumber,
+                        totalPagesInChapter: 0, // Will be set later
+                        wordCount: currentWordCount
+                    });
+                    
+                    // Start new page
+                    currentPageContent = [paragraph];
+                    currentWordCount = paragraphWordCount;
+                    pageNumber++;
+                } else {
+                    // Add paragraph to current page
+                    currentPageContent.push(paragraph);
+                    currentWordCount += paragraphWordCount;
+                }
+                
+                // If this paragraph alone is too long, split it
+                if (paragraphWordCount > WORDS_PER_PAGE * 1.5) {
+                    const splitParagraphs = splitLongParagraph(paragraph, WORDS_PER_PAGE);
+                    currentPageContent.pop(); // Remove the original long paragraph
+                    
+                    for (let j = 0; j < splitParagraphs.length; j++) {
+                        const splitPara = splitParagraphs[j];
+                        const splitWords = splitPara.text.split(/\s+/).filter(word => word.length > 0);
+                        
+                        if (currentWordCount + splitWords.length > WORDS_PER_PAGE && currentPageContent.length > 0) {
+                            // Save current page
+                            const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
+                            chapterPages.push({
+                                content: pageContent,
+                                chapterIndex: chapterIndex,
+                                chapterTitle: chapterTitle,
+                                pageNumber: pageNumber,
+                                totalPagesInChapter: 0,
+                                wordCount: currentWordCount
+                            });
+                            
+                            currentPageContent = [splitPara];
+                            currentWordCount = splitWords.length;
+                            pageNumber++;
+                        } else {
+                            currentPageContent.push(splitPara);
+                            currentWordCount += splitWords.length;
+                        }
+                    }
+                }
+            }
+            
+            // Add remaining content as final page
+            if (currentPageContent.length > 0) {
+                const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
+                chapterPages.push({
+                    content: pageContent,
+                    chapterIndex: chapterIndex,
+                    chapterTitle: chapterTitle,
+                    pageNumber: pageNumber,
+                    totalPagesInChapter: 0,
+                    wordCount: currentWordCount
+                });
+            }
+            
+            // Update total pages count
+            const totalPages = chapterPages.length;
+            chapterPages.forEach(page => {
+                page.totalPagesInChapter = totalPages;
+            });
+            
+            return chapterPages;
+        }
+
+        function extractParagraphs(element) {
+            const paragraphs = [];
+            const walker = document.createTreeWalker(
+                element,
+                NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            return node.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+                        }
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            const tagName = node.tagName.toLowerCase();
+                            if (['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'li'].includes(tagName)) {
+                                return NodeFilter.FILTER_ACCEPT;
+                            }
+                        }
+                        return NodeFilter.FILTER_SKIP;
+                    }
+                }
+            );
+            
+            let node;
+            while (node = walker.nextNode()) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const text = node.textContent.trim();
+                    if (text) {
+                        paragraphs.push({
+                            element: node.cloneNode(true),
+                            text: text,
+                            html: node.outerHTML
+                        });
+                    }
+                }
+            }
+            
+            // If no structured paragraphs found, split by line breaks
+            if (paragraphs.length === 0) {
+                const allText = element.textContent || element.innerText || '';
+                const lines = allText.split(/\n+/).filter(line => line.trim());
+                lines.forEach(line => {
+                    paragraphs.push({
+                        element: null,
+                        text: line.trim(),
+                        html: `<p>${line.trim()}</p>`
+                    });
+                });
+            }
+            
+            return paragraphs;
+        }
+
+        function splitLongParagraph(paragraph, maxWords) {
+            const words = paragraph.text.split(/\s+/);
+            const chunks = [];
+            
+            for (let i = 0; i < words.length; i += maxWords) {
+                const chunkWords = words.slice(i, i + maxWords);
+                const chunkText = chunkWords.join(' ');
+                
+                chunks.push({
+                    element: null,
+                    text: chunkText,
+                    html: `<p>${chunkText}</p>`
+                });
+            }
+            
+            return chunks;
+        }
+
+        function createCleanPageContent(paragraphs, chapterTitle, pageNumber) {
+            const totalWords = paragraphs.reduce((sum, p) => sum + p.text.split(/\s+/).length, 0);
+            
+            const pageHtml = paragraphs.map(p => p.html).join('\n');
+            
+            return `<div class="page-content">
+                <div class="page-header">
+                    <small style="color: #666; font-size: 12px; display: block; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee;">
+                        ${chapterTitle} - Page ${pageNumber} (${totalWords} words)
+                    </small>
+                </div>
+                <div style="margin-top: 15px; line-height: 1.6;">
+                    ${pageHtml}
+                </div>
+            </div>`;
+        }
+
+        function generateEnhancedTOC() {
+            const tocContainer = document.getElementById('tocContainer');
+            tocContainer.innerHTML = '';
+            
+            let currentChapter = -1;
+            
+            pages.forEach((page, pageIndex) => {
+                // Add chapter header if this is a new chapter
+                if (page.chapterIndex !== currentChapter) {
+                    currentChapter = page.chapterIndex;
+                    
+                    const chapterItem = document.createElement('div');
+                    chapterItem.className = 'toc-item chapter-title';
+                    chapterItem.textContent = page.chapterTitle;
+                    chapterItem.onclick = () => {
+                        // Find first page of this chapter
+                        const firstPageIndex = pages.findIndex(p => p.chapterIndex === page.chapterIndex);
+                        loadPage(firstPageIndex);
+                    };
+                    tocContainer.appendChild(chapterItem);
+                }
+                
+                // Add page item
+                const pageItem = document.createElement('div');
+                pageItem.className = 'toc-item page-item';
+                pageItem.textContent = `Page ${page.pageNumber}`;
+                if (page.totalPagesInChapter > 1) {
+                    pageItem.textContent += ` of ${page.totalPagesInChapter}`;
+                }
+                pageItem.onclick = () => loadPage(pageIndex);
+                tocContainer.appendChild(pageItem);
+            });
+        }
+
+        function loadPage(pageIndex) {
+            if (pageIndex < 0 || pageIndex >= pages.length) return;
+            
+            const page = pages[pageIndex];
+            currentPage = pageIndex;
+            
+            // Update TOC active state
+            document.querySelectorAll('.toc-item').forEach((item, i) => {
+                item.classList.remove('active');
+            });
+            
+            // Find and highlight the current page in TOC
+            const tocItems = document.querySelectorAll('.toc-item.page-item');
+            let tocIndex = 0;
+            for (let i = 0; i < pages.length; i++) {
+                if (i === pageIndex) {
+                    if (tocItems[tocIndex]) {
+                        tocItems[tocIndex].classList.add('active');
+                    }
+                    break;
+                }
+                if (i === 0 || pages[i].chapterIndex !== pages[i-1].chapterIndex) {
+                    // Skip chapter headers in counting
+                }
+                tocIndex++;
+            }
+            
+            // Display page content
+            document.getElementById('contentArea').innerHTML = page.content;
+            
+            // Update page info
+            document.getElementById('pageInfo').textContent = `Page ${pageIndex + 1} of ${pages.length}`;
+            
+            // Update navigation buttons
+            document.getElementById('prevBtn').disabled = pageIndex === 0;
+            document.getElementById('nextBtn').disabled = pageIndex === pages.length - 1;
+            
+            // Scroll to top
+            document.getElementById('contentArea').scrollTop = 0;
+            
+            updateProgress();
+        }
+
+        function previousPage() {
+            if (currentPage > 0) {
+                loadPage(currentPage - 1);
+            }
+        }
+
+        function nextPage() {
+            if (currentPage < pages.length - 1) {
+                loadPage(currentPage + 1);
+            }
+        }
+
+        function updateProgress() {
+            const progress = pages.length > 0 ? ((currentPage + 1) / pages.length) * 100 : 0;
+            document.getElementById('progressBar').style.width = progress + '%';
+        }
+
+        function closeBook() {
+            document.getElementById('readerContainer').style.display = 'none';
+            document.getElementById('chapterNav').style.display = 'none';
+            document.getElementById('fileInput').value = '';
+            currentBook = null;
+            currentChapter = 0;
+            currentPage = 0;
+            chapters = [];
+            pages = [];
+            bookData = {};
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (document.getElementById('readerContainer').style.display === 'flex') {
+                if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                    e.preventDefault();
+                    previousPage();
+                } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+                    e.preventDefault();
+                    nextPage();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
