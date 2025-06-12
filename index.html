@@ -310,6 +310,7 @@
             display: flex;
             flex-direction: column;
             gap: 20px;
+            height: 100%;
         }
 
         .typing-text {
@@ -332,6 +333,44 @@
             position: relative;
             max-width: 100%;
             box-sizing: border-box;
+            min-height: 400px;
+        }
+
+        .typing-stats {
+            display: flex;
+            gap: 40px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #667eea;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
+            border-radius: 12px;
+            flex-wrap: wrap;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.1);
+            flex-shrink: 0;
+        }
+
+        .typing-stats > span {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 8px 16px;
+            border-radius: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .typing-instructions {
+            color: #999;
+            font-size: 14px;
+            font-style: italic;
+            font-weight: normal;
+            background: rgba(255, 255, 255, 0.6);
+            padding: 6px 12px;
+            border-radius: 15px;
+            margin-top: 5px;
         }
 
         .hidden-typing-input {
@@ -1574,6 +1613,7 @@
         }
 
         function resetTypingStats() {
+            console.log('=== RESETTING STATS ===');
             typingStats = {
                 startTime: null,
                 correctChars: 0,
@@ -1583,16 +1623,29 @@
             typingPosition = 0;
             typedText = '';
             
-            console.log('Stats reset');
-            
-            // Reset display
-            const wpmElement = document.getElementById('wpmStat');
-            const accuracyElement = document.getElementById('accuracyStat');
-            const progressElement = document.getElementById('progressStat');
-            
-            if (wpmElement) wpmElement.textContent = '0';
-            if (accuracyElement) accuracyElement.textContent = '100%';
-            if (progressElement) progressElement.textContent = '0%';
+            // Reset display with error checking
+            try {
+                const wpmElement = document.getElementById('wpmStat');
+                const accuracyElement = document.getElementById('accuracyStat');
+                const progressElement = document.getElementById('progressStat');
+                
+                if (wpmElement) {
+                    wpmElement.textContent = '0';
+                    wpmElement.style.color = '#667eea';
+                }
+                if (accuracyElement) {
+                    accuracyElement.textContent = '100%';
+                    accuracyElement.style.color = '#667eea';
+                }
+                if (progressElement) {
+                    progressElement.textContent = '0%';
+                    progressElement.style.color = '#667eea';
+                }
+                
+                console.log('Stats reset successfully');
+            } catch (error) {
+                console.error('Error resetting stats:', error);
+            }
         }
 
         function generateEnhancedTOC() {
