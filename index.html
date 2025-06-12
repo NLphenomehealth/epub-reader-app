@@ -1008,7 +1008,12 @@
         function closeBook() {
             document.getElementById('readerContainer').style.display = 'none';
             document.getElementById('chapterNav').style.display = 'none';
-            document.getElementById('fileInput').value = '';
+            
+            // Reset file input properly
+            const fileInput = document.getElementById('fileInput');
+            fileInput.value = '';
+            fileInput.type = '';
+            fileInput.type = 'file';
             
             // Close menu
             const sidebar = document.getElementById('sidebar');
@@ -1022,12 +1027,20 @@
             }
             imageCache.clear();
             
+            // Reset all variables
             currentBook = null;
             currentChapter = 0;
             currentPage = 0;
             chapters = [];
             pages = [];
             bookData = {};
+            
+            // Force refresh of upload area
+            const uploadArea = document.querySelector('.upload-area');
+            uploadArea.style.display = 'none';
+            setTimeout(() => {
+                uploadArea.style.display = 'block';
+            }, 10);
         }
 
         // Keyboard navigation
