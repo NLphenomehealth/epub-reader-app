@@ -317,17 +317,17 @@
             font-family: 'Courier New', monospace;
             font-size: 18px;
             line-height: 2;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            word-break: keep-all;
-            overflow-wrap: break-word;
+            white-space: nowrap;
+            overflow-wrap: normal;
+            word-wrap: normal;
+            word-break: normal;
             hyphens: none;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             padding: 30px;
             background: #fafafa;
             overflow-y: auto;
-            overflow-x: hidden;
+            overflow-x: auto;
             cursor: text;
             position: relative;
             max-width: 100%;
@@ -407,6 +407,11 @@
 
         .char-untyped {
             color: #ccc;
+        }
+
+        .word-wrapper {
+            display: inline-block;
+            white-space: nowrap;
         }
 
         .current-char {
@@ -1083,11 +1088,11 @@
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = content;
             
-            // Get all text content and split by words
+            // Get all text content and split by sentences first
             const textContent = tempDiv.textContent || tempDiv.innerText || '';
-            const words = textContent.split(/\s+/).filter(word => word.length > 0);
+            const sentences = textContent.split(/(?<=[.!?])\s+/).filter(sentence => sentence.trim().length > 0);
             
-            if (words.length === 0) {
+            if (sentences.length === 0) {
                 return [{
                     content: content,
                     chapterIndex: chapterIndex,
@@ -1096,9 +1101,14 @@
                     totalPagesInChapter: 1
                 }];
             }
+            
+            // Count total words
+            const totalWords = sentences.reduce((sum, sentence) => {
+                return sum + sentence.split(/\s+/).filter(word => word.length > 0).length;
+            }, 0);
             
             // If chapter is short enough, return as single page
-            if (words.length <= WORDS_PER_PAGE) {
+            if (totalWords <= WORDS_PER_PAGE) {
                 return [{
                     content: content,
                     chapterIndex: chapterIndex,
@@ -1108,22 +1118,21 @@
                 }];
             }
             
-            // Split content by paragraphs first to maintain structure
-            const paragraphs = extractParagraphs(tempDiv);
+            // Split into pages by complete sentences
             const chapterPages = [];
-            let currentPageContent = [];
+            let currentPageSentences = [];
             let currentWordCount = 0;
             let pageNumber = 1;
             
-            for (let i = 0; i < paragraphs.length; i++) {
-                const paragraph = paragraphs[i];
-                const paragraphWords = paragraph.text.split(/\s+/).filter(word => word.length > 0);
-                const paragraphWordCount = paragraphWords.length;
+            for (let i = 0; i < sentences.length; i++) {
+                const sentence = sentences[i].trim();
+                const sentenceWords = sentence.split(/\s+/).filter(word => word.length > 0);
+                const sentenceWordCount = sentenceWords.length;
                 
-                // If adding this paragraph would exceed the word limit
-                if (currentWordCount + paragraphWordCount > WORDS_PER_PAGE && currentPageContent.length > 0) {
-                    // Create a page with current content
-                    const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
+                // Check if adding this sentence would exceed word limit
+                if (currentWordCount + sentenceWordCount > WORDS_PER_PAGE && currentPageSentences.length > 0) {
+                    // Create a page with current sentences
+                    const pageContent = createSentenceBasedPageContent(currentPageSentences, chapterTitle, pageNumber);
                     chapterPages.push({
                         content: pageContent,
                         chapterIndex: chapterIndex,
@@ -1134,50 +1143,54 @@
                     });
                     
                     // Start new page
-                    currentPageContent = [paragraph];
-                    currentWordCount = paragraphWordCount;
+                    currentPageSentences = [sentence];
+                    currentWordCount = sentenceWordCount;
                     pageNumber++;
                 } else {
-                    // Add paragraph to current page
-                    currentPageContent.push(paragraph);
-                    currentWordCount += paragraphWordCount;
+                    // Add sentence to current page
+                    currentPageSentences.push(sentence);
+                    currentWordCount += sentenceWordCount;
                 }
                 
-                // If this paragraph alone is too long, split it
-                if (paragraphWordCount > WORDS_PER_PAGE * 1.5) {
-                    const splitParagraphs = splitLongParagraph(paragraph, WORDS_PER_PAGE);
-                    currentPageContent.pop(); // Remove the original long paragraph
-                    
-                    for (let j = 0; j < splitParagraphs.length; j++) {
-                        const splitPara = splitParagraphs[j];
-                        const splitWords = splitPara.text.split(/\s+/).filter(word => word.length > 0);
+                // Handle very long sentences that exceed page limit
+                if (sentenceWordCount > WORDS_PER_PAGE * 1.5) {
+                    // Split long sentence by phrases/clauses
+                    const phrases = sentence.split(/(?<=,)\s+|(?<=;)\s+|(?<=:)\s+/);
+                    if (phrases.length > 1) {
+                        currentPageSentences.pop(); // Remove the long sentence
+                        currentWordCount -= sentenceWordCount;
                         
-                        if (currentWordCount + splitWords.length > WORDS_PER_PAGE && currentPageContent.length > 0) {
-                            // Save current page
-                            const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
-                            chapterPages.push({
-                                content: pageContent,
-                                chapterIndex: chapterIndex,
-                                chapterTitle: chapterTitle,
-                                pageNumber: pageNumber,
-                                totalPagesInChapter: 0,
-                                wordCount: currentWordCount
-                            });
+                        // Add phrases one by one
+                        for (const phrase of phrases) {
+                            const phraseWords = phrase.split(/\s+/).filter(word => word.length > 0).length;
                             
-                            currentPageContent = [splitPara];
-                            currentWordCount = splitWords.length;
-                            pageNumber++;
-                        } else {
-                            currentPageContent.push(splitPara);
-                            currentWordCount += splitWords.length;
+                            if (currentWordCount + phraseWords > WORDS_PER_PAGE && currentPageSentences.length > 0) {
+                                // Save current page
+                                const pageContent = createSentenceBasedPageContent(currentPageSentences, chapterTitle, pageNumber);
+                                chapterPages.push({
+                                    content: pageContent,
+                                    chapterIndex: chapterIndex,
+                                    chapterTitle: chapterTitle,
+                                    pageNumber: pageNumber,
+                                    totalPagesInChapter: 0,
+                                    wordCount: currentWordCount
+                                });
+                                
+                                currentPageSentences = [phrase.trim()];
+                                currentWordCount = phraseWords;
+                                pageNumber++;
+                            } else {
+                                currentPageSentences.push(phrase.trim());
+                                currentWordCount += phraseWords;
+                            }
                         }
                     }
                 }
             }
             
-            // Add remaining content as final page
-            if (currentPageContent.length > 0) {
-                const pageContent = createCleanPageContent(currentPageContent, chapterTitle, pageNumber);
+            // Add remaining sentences as final page
+            if (currentPageSentences.length > 0) {
+                const pageContent = createSentenceBasedPageContent(currentPageSentences, chapterTitle, pageNumber);
                 chapterPages.push({
                     content: pageContent,
                     chapterIndex: chapterIndex,
@@ -1195,6 +1208,26 @@
             });
             
             return chapterPages;
+        }
+
+        function createSentenceBasedPageContent(sentences, chapterTitle, pageNumber) {
+            const totalWords = sentences.reduce((sum, sentence) => {
+                return sum + sentence.split(/\s+/).filter(word => word.length > 0).length;
+            }, 0);
+            
+            // Join sentences with proper spacing
+            const pageText = sentences.join(' ').trim();
+            
+            return `<div class="page-content">
+                <div class="page-header">
+                    <small style="color: #666; font-size: 12px; display: block; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                        ${chapterTitle} - Page ${pageNumber} (${totalWords} words)
+                    </small>
+                </div>
+                <div style="margin-top: 20px; line-height: 1.8;">
+                    <p>${pageText}</p>
+                </div>
+            </div>`;
         }
 
         function extractParagraphs(element) {
@@ -1332,6 +1365,9 @@
             typingText = tempDiv.textContent || tempDiv.innerText || '';
             typingText = typingText.trim().replace(/\s+/g, ' '); // Normalize whitespace
             
+            // Normalize quotes and apostrophes to standard ASCII characters
+            typingText = normalizeQuotes(typingText);
+            
             if (!typingText) {
                 alert('No text content found on this page!');
                 toggleTypingMode(); // Exit typing mode
@@ -1370,6 +1406,23 @@
                 hiddenInput.focus();
                 console.log('Hidden input focused');
             }, 100);
+        }
+
+        function normalizeQuotes(text) {
+            return text
+                // Replace smart/curly single quotes with straight apostrophe
+                .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+                // Replace smart/curly double quotes with straight quotes
+                .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+                // Replace other quote-like characters
+                .replace(/[\u2032\u2033]/g, "'") // prime symbols
+                .replace(/[\u00B4\u0060]/g, "'") // acute accent, grave accent
+                // Replace em dash and en dash with regular dash
+                .replace(/[\u2013\u2014]/g, "-")
+                // Replace ellipsis character with three dots
+                .replace(/\u2026/g, "...")
+                // Replace non-breaking space with regular space
+                .replace(/\u00A0/g, " ");
         }
 
         function focusHiddenInput() {
@@ -1440,31 +1493,56 @@
             const typingTextElement = document.getElementById('typingText');
             let html = '';
             
-            for (let i = 0; i < typingText.length; i++) {
-                const char = typingText[i];
-                let className = 'char-untyped';
+            // Split text into words to prevent line breaks within words
+            const words = typingText.split(' ');
+            let charIndex = 0;
+            
+            for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
+                const word = words[wordIndex];
+                let wordHtml = '';
                 
-                if (i < typedText.length) {
-                    // Character has been typed
-                    if (typedText[i] === typingText[i]) {
-                        // Correct character
-                        className = 'char-correct';
-                    } else {
-                        // Incorrect character - only highlight this specific character
-                        className = 'char-incorrect';
+                // Process each character in the word
+                for (let i = 0; i < word.length; i++) {
+                    const char = word[i];
+                    let className = 'char-untyped';
+                    
+                    if (charIndex < typedText.length) {
+                        // Character has been typed
+                        if (typedText[charIndex] === typingText[charIndex]) {
+                            // Correct character
+                            className = 'char-correct';
+                        } else {
+                            // Incorrect character - only highlight this specific character
+                            className = 'char-incorrect';
+                        }
+                    } else if (charIndex === typedText.length) {
+                        // This is the current character to type (cursor position)
+                        className = 'current-char';
                     }
-                } else if (i === typedText.length) {
-                    // This is the current character to type (cursor position)
-                    className = 'current-char';
+                    // Characters beyond the typed position remain 'char-untyped' (gray)
+                    
+                    wordHtml += `<span class="${className}">${char}</span>`;
+                    charIndex++;
                 }
-                // Characters beyond the typed position remain 'char-untyped' (gray)
                 
-                if (char === ' ') {
-                    html += `<span class="${className}">&nbsp;</span>`;
-                } else if (char === '\n') {
-                    html += `<span class="${className}"><br></span>`;
-                } else {
-                    html += `<span class="${className}">${char}</span>`;
+                // Wrap each word in a span to prevent breaking
+                html += `<span class="word-wrapper">${wordHtml}</span>`;
+                
+                // Add space after word (except for last word)
+                if (wordIndex < words.length - 1) {
+                    let spaceClass = 'char-untyped';
+                    if (charIndex < typedText.length) {
+                        if (typedText[charIndex] === ' ') {
+                            spaceClass = 'char-correct';
+                        } else {
+                            spaceClass = 'char-incorrect';
+                        }
+                    } else if (charIndex === typedText.length) {
+                        spaceClass = 'current-char';
+                    }
+                    
+                    html += `<span class="${spaceClass}">&nbsp;</span>`;
+                    charIndex++;
                 }
             }
             
@@ -1473,7 +1551,7 @@
             // Scroll to current position
             const currentCharElement = typingTextElement.querySelector('.current-char');
             if (currentCharElement) {
-                currentCharElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                currentCharElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
         }
 
