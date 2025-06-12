@@ -162,6 +162,8 @@
             border-radius: 6px;
             white-space: nowrap;
         }
+
+        .progress {
             background: rgba(255, 255, 255, 0.2);
             border-radius: 10px;
             height: 6px;
@@ -265,15 +267,6 @@
             margin-left: 15px;
             font-size: 13px;
             opacity: 0.8;
-        }
-
-        .page-info {
-            color: white;
-            font-size: 14px;
-            padding: 8px 12px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 6px;
-            white-space: nowrap;
         }
 
         .content-area {
@@ -382,58 +375,6 @@
             pointer-events: none;
         }
 
-        .typing-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: white;
-            display: none;
-            flex-direction: column;
-            z-index: 500;
-        }
-
-        .typing-overlay.active {
-            display: flex;
-        }
-
-        .typing-stats {
-            display: flex;
-            gap: 40px;
-            font-size: 16px;
-            font-weight: bold;
-            color: #667eea;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
-            border-radius: 12px;
-            flex-wrap: wrap;
-            border: 1px solid rgba(102, 126, 234, 0.2);
-            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.1);
-        }
-
-        .typing-stats > span {
-            background: rgba(255, 255, 255, 0.8);
-            padding: 8px 16px;
-            border-radius: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            min-width: 80px;
-            text-align: center;
-        }
-
-        .typing-instructions {
-            color: #999;
-            font-size: 14px;
-            font-style: italic;
-            font-weight: normal;
-            background: rgba(255, 255, 255, 0.6);
-            padding: 6px 12px;
-            border-radius: 15px;
-            margin-top: 5px;
-        }
-
         .char-correct {
             color: #333;
             background: rgba(76, 175, 80, 0.1);
@@ -492,8 +433,6 @@
         .content-area h3 {
             font-size: 20px;
         }
-
-
 
         .content-area img {
             max-width: 100%;
@@ -571,6 +510,29 @@
         .nav-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 25px rgba(102, 126, 234, 0.6);
+        }
+
+        .completion-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            opacity: 0;
+            animation: fadeInOut 2s ease-in-out;
+        }
+
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
         }
     </style>
 </head>
@@ -650,6 +612,7 @@
             totalChars: 0,
             wordsTyped: 0
         };
+        let isTransitioningPage = false; // Flag to prevent multiple transitions
         const WORDS_PER_PAGE = 300;
 
         // File input handling
@@ -1385,12 +1348,17 @@
                 typingModeBtn.textContent = '⌨️ Typing Mode';
                 typingModeBtn.style.background = 'rgba(255, 255, 255, 0.2)';
                 resetTypingStats();
+                isTransitioningPage = false; // Reset transition flag
             }
         }
 
         function setupTypingMode() {
+            console.log('=== SETTING UP TYPING MODE ===');
             const currentPageData = pages[currentPage];
-            if (!currentPageData) return;
+            if (!currentPageData) {
+                console.error('No page data found for page:', currentPage);
+                return;
+            }
             
             // Extract plain text from HTML content
             const tempDiv = document.createElement('div');
@@ -1401,28 +1369,36 @@
             if (pageHeader) pageHeader.remove();
             
             // Get clean text content
-            typingText = tempDiv.textContent || tempDiv.innerText || '';
-            typingText = typingText.trim().replace(/\s+/g, ' '); // Normalize whitespace
+            let rawText = tempDiv.textContent || tempDiv.innerText || '';
+            rawText = rawText.trim().replace(/\s+/g, ' '); // Normalize whitespace
             
             // Normalize quotes and apostrophes to standard ASCII characters
-            typingText = normalizeQuotes(typingText);
+            typingText = normalizeQuotes(rawText);
+            
+            console.log('Raw text length:', rawText.length);
+            console.log('Normalized text length:', typingText.length);
+            console.log('First 100 chars:', typingText.substring(0, 100));
             
             if (!typingText) {
                 alert('No text content found on this page!');
-                toggleTypingMode(); // Exit typing mode
+                toggleTypingMode();
                 return;
             }
             
-            console.log('Typing text setup:', typingText.substring(0, 100) + '...');
-            console.log('Text length:', typingText.length);
-            
+            // Reset everything
             typingPosition = 0;
             typedText = '';
             resetTypingStats();
+            isTransitioningPage = false; // Reset transition flag
             
             // Setup the typing interface
             const typingTextElement = document.getElementById('typingText');
             const hiddenInput = document.getElementById('hiddenTypingInput');
+            
+            console.log('Elements found:', {
+                typingText: !!typingTextElement,
+                hiddenInput: !!hiddenInput
+            });
             
             // Display text with all characters in gray initially
             displayTypingText();
@@ -1443,7 +1419,7 @@
             // Focus the hidden input
             setTimeout(() => {
                 hiddenInput.focus();
-                console.log('Hidden input focused');
+                console.log('✅ Setup complete, input focused');
             }, 100);
         }
 
@@ -1470,16 +1446,18 @@
         }
 
         function handleHiddenInput(event) {
-            console.log('Hidden input event:', event.target.value);
+            console.log('=== HIDDEN INPUT EVENT ===');
+            console.log('Raw input value:', event.target.value);
             
             const newTypedText = event.target.value;
             
             // Normalize the typed text (convert smart quotes to regular quotes)
             typedText = normalizeQuotes(newTypedText);
             
-            console.log('Original typed:', newTypedText);
-            console.log('Normalized typed:', typedText);
+            console.log('Normalized typed text:', typedText);
+            console.log('Length:', typedText.length);
             
+            // Force stats update
             updateTypingDisplay();
         }
 
@@ -1522,13 +1500,21 @@
             updateTypingStats();
             
             // Check if page is complete (all characters typed and all correct)
-            if (typedText.length === typingText.length && correctChars === typingText.length) {
+            if (typedText.length === typingText.length && correctChars === typingText.length && !isTransitioningPage) {
                 console.log('Page completed! Moving to next page...');
+                isTransitioningPage = true; // Prevent multiple transitions
+                
+                // Show completion message
+                showCompletionMessage();
                 
                 setTimeout(() => {
                     if (currentPage < pages.length - 1) {
                         // Automatically move to next page
                         nextPage();
+                        // Clear the hidden input for the new page
+                        const hiddenInput = document.getElementById('hiddenTypingInput');
+                        hiddenInput.value = '';
+                        // Setup typing mode for the new page
                         setTimeout(() => {
                             setupTypingMode();
                         }, 100);
@@ -1537,8 +1523,23 @@
                         alert('🎉 Congratulations! You have completed the entire book! Great job on your typing practice!');
                         toggleTypingMode(); // Exit typing mode
                     }
-                }, 500); // Small delay to show completion
+                }, 1500); // Longer delay to show completion message
             }
+        }
+
+        function showCompletionMessage() {
+            // Create and show completion message
+            const message = document.createElement('div');
+            message.className = 'completion-message';
+            message.textContent = '✨ Page Complete! ✨';
+            document.body.appendChild(message);
+            
+            // Remove after animation
+            setTimeout(() => {
+                if (message.parentNode) {
+                    message.parentNode.removeChild(message);
+                }
+            }, 2000);
         }
 
         function displayTypingText() {
@@ -1609,6 +1610,59 @@
             const currentCharElement = typingTextElement.querySelector('.current-char');
             if (currentCharElement) {
                 currentCharElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            }
+        }
+
+        function updateTypingStats() {
+            if (!typingStats.startTime || typingStats.totalChars === 0) {
+                return;
+            }
+            
+            // Calculate WPM
+            const elapsedMinutes = (Date.now() - typingStats.startTime) / 60000;
+            const wordsTyped = typingStats.totalChars / 5; // Standard: 5 chars = 1 word
+            const wpm = Math.round(wordsTyped / elapsedMinutes);
+            
+            // Calculate accuracy
+            const accuracy = typingStats.totalChars > 0 
+                ? Math.round((typingStats.correctChars / typingStats.totalChars) * 100)
+                : 100;
+            
+            // Calculate progress
+            const progress = typingText.length > 0
+                ? Math.round((typingPosition / typingText.length) * 100)
+                : 0;
+            
+            // Update display
+            const wpmElement = document.getElementById('wpmStat');
+            const accuracyElement = document.getElementById('accuracyStat');
+            const progressElement = document.getElementById('progressStat');
+            
+            if (wpmElement) {
+                wpmElement.textContent = wpm;
+                // Color code WPM
+                if (wpm < 20) wpmElement.style.color = '#f44336';
+                else if (wpm < 40) wpmElement.style.color = '#ff9800';
+                else if (wpm < 60) wpmElement.style.color = '#4CAF50';
+                else wpmElement.style.color = '#2196F3';
+            }
+            
+            if (accuracyElement) {
+                accuracyElement.textContent = accuracy + '%';
+                // Color code accuracy
+                if (accuracy < 80) accuracyElement.style.color = '#f44336';
+                else if (accuracy < 90) accuracyElement.style.color = '#ff9800';
+                else if (accuracy < 95) accuracyElement.style.color = '#4CAF50';
+                else accuracyElement.style.color = '#2196F3';
+            }
+            
+            if (progressElement) {
+                progressElement.textContent = progress + '%';
+                // Color code progress
+                if (progress < 25) progressElement.style.color = '#f44336';
+                else if (progress < 50) progressElement.style.color = '#ff9800';
+                else if (progress < 75) progressElement.style.color = '#4CAF50';
+                else progressElement.style.color = '#2196F3';
             }
         }
 
@@ -1771,6 +1825,14 @@
             chapters = [];
             pages = [];
             bookData = {};
+            typingMode = false;
+            isTransitioningPage = false;
+            
+            // Exit typing mode if active
+            const typingOverlay = document.getElementById('typingOverlay');
+            if (typingOverlay.classList.contains('active')) {
+                toggleTypingMode();
+            }
             
             // Completely reset file input
             const fileInput = document.getElementById('fileInput');
@@ -1784,7 +1846,7 @@
 
         // Keyboard navigation
         document.addEventListener('keydown', (e) => {
-            if (document.getElementById('readerContainer').style.display === 'flex') {
+            if (document.getElementById('readerContainer').style.display === 'flex' && !typingMode) {
                 if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
                     e.preventDefault();
                     previousPage();
